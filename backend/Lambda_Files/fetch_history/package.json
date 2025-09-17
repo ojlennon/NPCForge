@@ -1,0 +1,11 @@
+{
+  "name": "fetch-history-lambda",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.mjs",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.x.x",
+    "@aws-sdk/client-bedrock-runtime": "^3.x.x",
+    "@aws-sdk/util-dynamodb": "^3.x.x"
+  }
+}

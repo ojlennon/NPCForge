@@ -1,0 +1,10 @@
+{
+  "name": "save-game-lambda",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.mjs",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.x.x",
+    "uuid": "^9.x.x"
+  }
+}

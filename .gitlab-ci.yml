@@ -1,0 +1,113 @@
+# This file is a template, and might need editing to fit your project's needs.
+#
+# The CI/CD pipeline is divided into two stages: build and deploy.
+# 1. Build: Installs Node.js dependencies, runs the build script, and saves the output ('dist' directory) as an artifact.
+# 2. Deploy: Takes the artifact from the build stage and securely copies it to your production server.
+
+stages:
+  # - build
+  - deploy
+
+variables:
+  # This variable can be overridden in your project's settings or by your build tool.
+  # For example, create-react-app uses 'build', while Vue CLI and Vite use 'dist'.
+  DEPLOY_PATH: /home/ec2-user/frontend
+  BACKEND_WEBSOCKET_NODEJS_DEPLOY_PATH: /home/ec2-user/websocket-nodejs
+  SERVER_IP: 52.87.35.240
+  SERVER_USER: ec2-user
+
+# #
+# # Build Job: Creates the production-ready static files.
+# #
+# build-job:
+#   stage: build
+#   # Use an official Node.js image. Using a specific version is recommended for consistency.
+#   image: node:24-alpine3.21
+
+#   script:
+#     - cd frontend/
+#     - echo "Installing dependencies..."
+#     # Use 'npm ci' for faster, more reliable installs in CI environments.
+#     # It uses the package-lock.json to ensure exact dependency versions.
+#     - npm ci
+#     - echo "Building the application..."
+#     # This runs the 'build' script defined in your package.json
+#     - npm run build
+#     - echo "Build complete."
+
+#     # PROJECT CAN'T HAVE ARTIFACTS DUE TO ERROR: ERROR: Uploading artifacts as "archive" to coordinator... 413 Request Entity Too Large  id=717 responseStatus=413 Request Entity Too Large status=413 token=eyJraWQiO
+#   # # 'artifacts' are files saved after a job succeeds. They are passed to subsequent stages.
+#   # artifacts:
+#   #   paths:
+#   #     # The path to the directory containing the build output.
+#   #     # This must match the output directory of your 'npm run build' command.
+#   #     - ${BUILD_DIR}/
+#   #   # Artifacts expire to save space.
+#   #   expire_in: 15 minutes
+
+#
+# Deploy Job: Copies the build artifacts to the Nginx server.
+#
+deploy-job:
+  stage: deploy
+  # Use a minimal image with ssh client tools.
+  image: node:24-alpine3.21
+
+  # This section defines the environment this job deploys to.
+  environment:
+    name: production
+    url: http://npcforge.cloud303.tech
+
+  # 'before_script' runs before the main 'script'. It's ideal for setup tasks.
+  before_script:
+    - echo "Preparing for deployment..."
+    # Install ssh-client so we can use scp.
+    - apk update && apk add openssh-client rsync
+    # Set up the SSH private key from the CI/CD variable.
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    # The $SSH_PRIVATE_KEY variable must be configured in your project's CI/CD settings.
+    - mv backend/terraform/ec2-keypair.pem ~/.ssh/id_rsa
+    - chmod 600 ~/.ssh/id_rsa
+    # Disable strict host key checking to prevent the job from getting stuck
+    # on the "Are you sure you want to continue connecting (yes/no)?" prompt.
+    # A more secure alternative is to add the server's host key to a CI/CD variable.
+    - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
+
+  script:
+    - cd frontend/
+    - echo "Installing dependencies..."
+    # Use 'npm ci' for faster, more reliable installs in CI environments.
+    # It uses the package-lock.json to ensure exact dependency versions.
+    - npm ci
+    - echo "Building the application..."
+    # This runs the 'build' script defined in your package.json
+    - npm run build
+    - echo "Build complete."
+    - echo "Deploying application to server..."
+    # Use scp to securely copy the build artifacts.
+    # -r: recursive (to copy the whole directory)
+    # -p: preserves modification times and modes
+    # Source: The contents of the build directory ($BUILD_DIR/*)
+    # Destination: The user, server IP, and path on the remote server.
+    - rsync -avz --delete ./ ${SERVER_USER}@${SERVER_IP}:${DEPLOY_PATH}
+    - ssh ${SERVER_USER}@${SERVER_IP} "tmux kill-session -t node" || true
+    - ssh ${SERVER_USER}@${SERVER_IP} "tmux new-session -d -s node 'cd ${DEPLOY_PATH} && PORT=8080 node build'"
+    - echo "Application successfully deployed."
+    # Steps for backend
+    - cd ../backend/websocket-nodejs/
+    - echo "Installing backend/websocket-nodejs dependencies..."
+    - npm ci
+    - echo "Building the backend/websocket-nodejs application..."
+    - npm run build
+    - echo "Backend/websocket-nodejs build complete."
+    - echo "Deploying backend/websocket-nodejs application to server..."
+    - rsync -avz --delete ./ ${SERVER_USER}@${SERVER_IP}:${BACKEND_WEBSOCKET_NODEJS_DEPLOY_PATH}
+    - ssh ${SERVER_USER}@${SERVER_IP} "tmux kill-session -t backend_websocket_node" || true
+    - ssh ${SERVER_USER}@${SERVER_IP} "tmux new-session -d -s backend_websocket_node 'cd ${BACKEND_WEBSOCKET_NODEJS_DEPLOY_PATH} && sudo npm run start'"
+    - echo "Backend/websocket-nodejs application successfully deployed."
+
+  # This job will only run on commits to the default branch (e.g., 'main' or 'master').
+  # This prevents deploying from feature branches.
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
